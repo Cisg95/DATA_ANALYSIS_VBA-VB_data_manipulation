@@ -1,0 +1,553 @@
+Public _
+    MAIN_FOLDER As String, GCP_STATS_FOLDER As String, BASE_FOLDER As String, GCP_FOLDER As String, RETOOL_FOLDER As String, CC_FOLDER As String, AUDI_FOLDER As String, OUTPUT_FOLDER As String, _
+    OUTPUT_FILE As String, STATS_FILE As String, BASE_FILE As String, NEW_BASE_FILE As String, ACUMULADO_FILE As String, ERROR_FILE As String, GCP_FILES As String, RETOOL_FILES As Variant, CC_FILES As Variant, AUDI_FILES As String, _
+    MAIN_WB As Workbook, BASE_WBK As Workbook, ACUMULADO_WBK As Workbook, _
+    BASE_WSH As Worksheet, GCP_WSH As Worksheet, RETOOL_WSH As Worksheet, ACUMULADO_WSH As Worksheet, _
+    AUDI_LIST As Variant, KEY_LIST As Variant, AC_KEY_LIST As Variant, RESULT_PREV As Variant, ID_LIST As Variant, NOT_ID_LIST As Variant, ACUMULADO_LIST As Variant, _
+    LASTCOLUMN_BASE As Integer, DateTime_ As String
+    
+Sub MAIN()
+
+If Hour(Now) < 10 Then
+    HOUR_ = "0" & Hour(Now)
+Else
+    HOUR_ = Hour(Now)
+End If
+
+If Minute(Now) < 10 Then
+    Minutes_ = "0" & Minute(Now)
+Else
+    Minutes_ = Minute(Now)
+End If
+DateTime_ = Date & "_" & HOUR_ & "." & Minutes_
+'##############################
+'####SETUP FOLDER VARIABLES ###
+'##############################
+
+MAIN_FOLDER = ActiveWorkbook.Path
+
+GCP_FOLDER = MAIN_FOLDER + "\GCP\"
+GCP_STATS_FOLDER = MAIN_FOLDER + "\GCP\STATS\"
+RETOOL_FOLDER = MAIN_FOLDER + "\RETOOL\"
+CC_FOLDER = MAIN_FOLDER & "\CC\"
+AUDI_FOLDER = MAIN_FOLDER & "\AUDITORIA\"
+BASE_FOLDER = MAIN_FOLDER & "\BASE_DIARIA\"
+
+OUTPUT_FOLDER = MAIN_FOLDER & "\RESULTADO\"
+
+OUTPUT_FILE = "DEVOLUCIONES_TBK_" & DateTime_ & ".csv"
+STATS_FILE = "STATS_PORTAL_TBK_" & DateTime_ & ".xlsx"
+
+If Not FileExists(OUTPUT_FOLDER & OUTPUT_FILE) Then
+    '##############################
+    '######SETUP FILE VARIABLES ###
+    '##############################
+    
+    'BASE DIARIA, ACUMULADO & BASE DE ERRORES
+    BASE_FILE = Dir(BASE_FOLDER & "*REPORTE_DEVOLUCIONES_TBK.xlsm")
+    BASE_FILE = BASE_FOLDER & BASE_FILE
+    
+    NEW_BASE_FILE = BASE_FOLDER & DateTime_ & "_" & "REPORTE_DEVOLUCIONES_TBK.xlsm"
+    ACUMULADO_FILE = BASE_FOLDER & "Reporte acumulado carga devoluciones TBK.xlsx"
+    ERROR_FILE = BASE_FOLDER & "Reporte acumulado errores devoluciones TBK.xlsx"
+    
+    'GCP
+    GCP_FILES = GCP_FOLDER & Dir(GCP_FOLDER & "*")
+    If Dir(GCP_FOLDER & "*") = "" Then
+        GoTo End_
+    End If
+    
+    'RETOOL
+    Set OBJFSO = CreateObject("Scripting.FileSystemObject")
+    Set OBJFOLDER = OBJFSO.GetFolder(RETOOL_FOLDER)
+    
+    COUNT0 = 0
+    For Each FILE In OBJFOLDER.Files
+      If Not FILE.Name Like "~$*" Then
+        COUNT0 = COUNT0 + 1
+      End If
+    Next FILE
+    
+    ReDim RETOOL_FILES(1 To COUNT0)
+    COUNT0 = 1
+    For Each FILE In OBJFOLDER.Files
+      If Not FILE.Name Like "~$*" Then
+        RETOOL_FILES(COUNT0) = FILE
+        COUNT0 = COUNT0 + 1
+    End If
+    Next
+    
+    'CC
+    Set OBJFOLDER1 = OBJFSO.GetFolder(CC_FOLDER)
+    
+    COUNT0 = 0
+    For Each FILE In OBJFOLDER1.Files
+        COUNT0 = COUNT0 + 1
+    Next
+    
+    ReDim CC_FILES(1 To COUNT0)
+    COUNT0 = 0
+    For Each FILE In OBJFOLDER1.Files
+        COUNT0 = COUNT0 + 1
+        CC_FILES(COUNT0) = FILE
+    Next
+    
+    'AUDITORIA
+    AUDI_FILES = AUDI_FOLDER & Dir(AUDI_FOLDER & "*")
+    
+    
+    '##############################
+    '######SETUP MAIN WORKBOOK ####
+    '##############################
+    
+    Set MAIN_WB = ThisWorkbook
+    Set GCP_WSH = MAIN_WB.Worksheets("GCP_STATS")
+    Set RETOOL_WSH = MAIN_WB.Worksheets("RETOOL_SETUP")
+    
+    GCP_WSH.Cells.Clear
+    RETOOL_WSH.Cells.Clear
+    
+    '##############################
+    '######PROCESS BODY ###########
+    '##############################
+    
+    GCP_LIST_AND_STATS
+    RETOOL_SETUP
+    CC_LIST
+    AUDITORIA_LIST
+    CRUCE_CC_GCP_RETOOL
+    FORMAT_RESULT
+    SAVE_OUTPUT
+
+    '##############################
+    '######ARCHIVE INPUT FILES ####
+    '##############################
+    'GCP FILES: CHECK OUTPUT & MOVE INPUT TO ARCHIVE
+    If FileExists(OUTPUT_FOLDER & OUTPUT_FILE) Then
+        Set FSO = CreateObject("Scripting.Filesystemobject")
+        
+        'MOVE GCP INPUT
+        If GCP_FILES <> "" Then
+            FSO.CopyFile Source:=GCP_FILES, Destination:=GCP_FOLDER & _
+                        "Archivado\GCP_" & DateTime_ & ".csv"
+            Kill GCP_FILES
+        End If
+        'MOVE RETOOL INPUT
+        
+        If RETOOL_FILES(1) <> "" Then
+            For Each RFILE In RETOOL_FILES
+                Set FSO = CreateObject("Scripting.Filesystemobject")
+                FSO.CopyFile Source:=RFILE, Destination:=RETOOL_FOLDER & _
+                            "Archivado\" & DateTime_ & "_" & Mid(RFILE, InStrRev(RFILE, "\") + 1)
+                Kill RFILE
+            Next
+        End If
+    End If
+
+End If
+
+Application.DisplayAlerts = False
+ThisWorkbook.Save
+Application.DisplayAlerts = True
+MsgBox "Proceso Dev TBK ha finalizado con éxito"
+End_:
+End Sub
+
+Sub GCP_LIST_AND_STATS()
+Dim WBK As Workbook
+Dim WSH As Worksheet
+Dim ID As String
+Dim DATE_ARRAY As Variant
+ReDim DATES(0 To 1)
+ReDim DATES_DS99999(0 To 1)
+ReDim DATES_TOTAL(0 To 1)
+
+Application.ScreenUpdating = False
+Set WBK = Workbooks.Open(GCP_FILES, Delimiter:=";")
+Set WSH = WBK.Worksheets(WBK.ActiveSheet.Name)
+
+'SETUP COLS
+WSH.Rows(1).Select
+ID_COL = Selection.Find(What:="tracking_id", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+AMOUNT_COL = Selection.Find(What:="amount", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+
+DATE_COL = Selection.Find(What:="event_date", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+AUTH = Selection.Find(What:="authorization_acquirer_code", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+
+LASTROW = WSH.Cells(Rows.Count, "A").End(xlUp).Row
+
+'SETUP TRACKING ID + AMOUNT IN ORDER TO MATCH RETOOL
+ReDim ID_LIST(1 To LASTROW - 1)
+ReDim NOT_ID_LIST(1 To LASTROW - 1)
+Set PREV_LIST = WSH.Range(Cells(2, ID_COL), Cells(2, ID_COL).End(xlDown))
+AMOUNT_LIST = WSH.Range(Cells(2, AMOUNT_COL), Cells(2, AMOUNT_COL).End(xlDown))
+
+For I = 1 To LASTROW - 1
+    If WSH.Cells(I + 1, AUTH) Like "DF*99999" Then
+        ID = PREV_LIST(I)
+        If Left(ID, 1) = "0" Then
+            ID = FixLeadingZeros(ID)
+        End If
+        ID_LIST(I) = Left(ID, InStr(ID, "-") - 1) & AMOUNT_LIST(I, 1)
+    Else
+        ID = PREV_LIST(I)
+        If Left(ID, 1) = "0" Then
+            ID = FixLeadingZeros(ID)
+        End If
+        NOT_ID_LIST(I) = Left(ID, InStr(ID, "-") - 1) & AMOUNT_LIST(I, 1)
+    End If
+Next
+
+If Not FileExists(GCP_STATS_FOLDER & STATS_FILE) Then
+    'SETUP UNIQUE DATES
+    DATE_ARRAY = Range(Cells(2, DATE_COL), Cells(LASTROW, DATE_COL))
+    
+    COUNT0 = 0
+    For DT = 1 To UBound(DATE_ARRAY, 1)
+        'REDIMENSION ARRAY IF
+        If COUNT0 > UBound(DATES, 1) Then
+            ReDim Preserve DATES(0 To COUNT0)
+            ReDim Preserve DATES_DS99999(0 To COUNT0)
+            ReDim Preserve DATES_TOTAL(0 To COUNT0)
+        End If
+        
+        If IsInArray_DT(Str(DATE_ARRAY(DT, 1)), DATES) And DT Then
+            POS = Application.Match(Str(DATE_ARRAY(DT, 1)), DATES, False)
+            If Cells(DT + 1, AUTH) = "DF99999" Or Cells(DT + 1, AUTH) = "DFTO99999" Then
+                DATES_DS99999(POS - 1) = DATES_DS99999(POS - 1) + 1
+            End If
+            DATES_TOTAL(POS - 1) = DATES_TOTAL(POS - 1) + 1
+        End If
+        
+        'ADD NEW DATE IN ARRAY
+        If Not IsInArray_DT(Str(DATE_ARRAY(DT, 1)), DATES) Then
+            DATES(COUNT0) = Str(DATE_ARRAY(DT, 1))
+            If Cells(DT + 1, AUTH) = "DF99999" Or Cells(DT + 1, AUTH) = "DFTO99999" Then
+                DATES_DS99999(COUNT0) = 1
+            Else
+                DATES_DS99999(COUNT0) = 0
+            End If
+            DATES_TOTAL(COUNT0) = 1
+            COUNT0 = COUNT0 + 1
+        End If
+    Next DT
+    
+    'SUMMARIZE IN WORKBOOK AND SAVE
+    'TITLES AND CONTENT
+    GCP_WSH.Cells(1, 1) = "EVENT_DATE"
+    GCP_WSH.Cells(1, 2) = "TO_PORTAL_TBK"
+    GCP_WSH.Cells(1, 3) = "DATE_TOTAL"
+    GCP_WSH.Cells(1, 4) = "PERCENTAGE"
+    
+    For I = 0 To COUNT0 - 1
+        GCP_WSH.Cells(I + 2, 1) = DATES(I)
+        GCP_WSH.Cells(I + 2, 2) = DATES_DS99999(I)
+        GCP_WSH.Cells(I + 2, 3) = DATES_TOTAL(I)
+        GCP_WSH.Cells(I + 2, 4) = Round(DATES_DS99999(I) / DATES_TOTAL(I), 2)
+    Next
+    
+    'SORT BY DATES
+    GCP_WSH.Range(GCP_WSH.Range("A1"), GCP_WSH.Range("A4").End(xlDown)).Sort Key1:=GCP_WSH.Range("A1"), Order1:=xlAscending, Header:=xlYes
+
+    
+    'SAVE STATS IN NEW .XLSX
+    Application.DisplayAlerts = False
+    GCP_WSH.Copy
+    ActiveWorkbook.SaveAs Filename:=GCP_STATS_FOLDER & STATS_FILE, CreateBackup:=True
+    ActiveWorkbook.Close
+    Application.DisplayAlerts = True
+    
+    
+End If
+
+'CLOSE GCP FILE
+WBK.Close
+Application.ScreenUpdating = True
+End Sub
+
+Sub RETOOL_SETUP()
+Dim WBK As Workbook, WBK1 As Workbook
+Dim WSH As Worksheet, wsh1 As Worksheet
+Dim LASTROW As Integer, LASTCOLUMN As Integer
+Dim NRO_ORDEN_COL As Integer, MONTO_COL As Integer, MONTO_VENTA_COL As Integer
+Dim NRO_ORDEN As String
+
+
+Application.ScreenUpdating = False
+For I = 1 To UBound(RETOOL_FILES)
+    Set WBK = Workbooks.Open(RETOOL_FILES(I), Format:=xlDelimited, Delimiter:=",")
+    Set WSH = WBK.Worksheets(WBK.ActiveSheet.Name)
+    LASTCOLUMN = WSH.Cells.Find("*", SearchOrder:=xlByColumns, SearchDirection:=xlPrevious).Column
+    'Extract date from document name in order to fill base in date column
+    DATE_DEV = Left(Right(WBK.Name, 14), 10)
+    
+    'HEADER
+    If IsNull(RETOOL_WSH.Cells(1, 1).Value) Or (RETOOL_WSH.Cells(1, 1).Value) = "" Then
+        WSH.Range(WSH.Cells(1, 1), WSH.Cells(1, LASTCOLUMN)).Copy _
+        RETOOL_WSH.Range(RETOOL_WSH.Cells(1, 1), RETOOL_WSH.Cells(1, LASTCOLUMN))
+        RETOOL_WSH.Cells(1, LASTCOLUMN + 1) = "DATE_DOC"
+    End If
+    'BODY
+    If IsNull(RETOOL_WSH.Cells(2, 1).Value) Or (RETOOL_WSH.Cells(2, 1).Value) = "" Then
+        WSH.Range(WSH.Cells(2, 1), WSH.Cells(2, LASTCOLUMN).End(xlDown)).Copy _
+        RETOOL_WSH.Range(RETOOL_WSH.Cells(2, 1), RETOOL_WSH.Cells(2, LASTCOLUMN))
+        LASTROW = RETOOL_WSH.Cells(Rows.Count, "A").End(xlUp).Row
+        RETOOL_WSH.Range(RETOOL_WSH.Cells(2, LASTCOLUMN + 1), RETOOL_WSH.Cells(LASTROW, LASTCOLUMN + 1)).NumberFormat = "DD-MM-YYYY"
+        RETOOL_WSH.Range(RETOOL_WSH.Cells(2, LASTCOLUMN + 1), RETOOL_WSH.Cells(LASTROW, LASTCOLUMN + 1)) = DATE_DEV
+    Else
+        LASTROW = RETOOL_WSH.Cells(Rows.Count, "A").End(xlUp).Row
+        WSH.Range(WSH.Cells(2, 1), WSH.Cells(2, LASTCOLUMN).End(xlDown)).Copy _
+        RETOOL_WSH.Range(RETOOL_WSH.Cells(LASTROW + 1, 1), RETOOL_WSH.Cells(LASTROW + 1, LASTCOLUMN))
+        LASTROW1 = RETOOL_WSH.Cells(Rows.Count, "A").End(xlUp).Row
+        RETOOL_WSH.Range(RETOOL_WSH.Cells(LASTROW, LASTCOLUMN + 1), RETOOL_WSH.Cells(LASTROW1, LASTCOLUMN + 1)) = DATE_DEV
+    End If
+    
+    WBK.Close
+    
+Next
+Application.ScreenUpdating = True
+
+'COPY AND PASTE IN "BASE DIARIA"
+LASTCOLUMN_BASE = LASTCOLUMN
+FILL_BASE
+
+'CREATING KEY IN ORDER TO USE CC
+RETOOL_WSH.Activate
+Rows(1).Select
+NRO_ORDEN_COL = Selection.Find(What:="numero_orden", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+MONTOD_COL = Selection.Find(What:="monto_devolucion", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+MONTOV_COL = Selection.Find(What:="montos_venta", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+
+'KEY HEADER
+RETOOL_WSH.Cells(1, LASTCOLUMN + 2).Value = "KEY_AUDITORIA"
+RETOOL_WSH.Cells(1, LASTCOLUMN + 3).Value = "KEY_CC"
+
+LASTROW = RETOOL_WSH.Cells(Rows.Count, "A").End(xlUp).Row
+For I = 2 To LASTROW + 1
+    NRO_ORDEN = RETOOL_WSH.Cells(I, NRO_ORDEN_COL)
+    If Left(NRO_ORDEN, 1) = "0" Then
+        NRO_ORDEN = FixLeadingZeros(NRO_ORDEN)
+    End If
+    RETOOL_WSH.Cells(I, LASTCOLUMN + 2).Value = NRO_ORDEN & RETOOL_WSH.Cells(I, MONTOD_COL).Value
+    RETOOL_WSH.Cells(I, LASTCOLUMN + 3).Value = NRO_ORDEN & RETOOL_WSH.Cells(I, MONTOV_COL).Value
+Next I
+End Sub
+
+Sub CC_LIST()
+Dim WBK As Workbook
+Dim WSH As Worksheet
+Dim KEY_COL As Integer
+ReDim KEY_LIST(1 To 1)
+ReDim AC_KEY_LIST(1 To 1)
+
+COUNT_ARR = 1
+COUNT_ARR2 = 1
+Application.ScreenUpdating = False
+For I = 1 To UBound(CC_FILES)
+    If InStr(CC_FILES(I), "~$") = 0 Then
+        Set WBK = Workbooks.Open(CC_FILES(I), Format:=xlDelimited, Delimiter:=",")
+        Set WSH = WBK.Worksheets(WBK.ActiveSheet.Name)
+        If InStr(CC_FILES(I), "Reporte Consolidado") = 0 Then
+            Application.Wait (Now + TimeValue("0:00:02")) 'SLEEP/WAIT 2 SECONDS SINCE INPUT MAY TAKES TIME TO OPEN
+            WSH.Activate
+            Rows(1).Select
+            KEY_COL = Selection.Find(What:="llave", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+            LASTROW = WSH.Cells(Rows.Count, "A").End(xlUp).Row - 1
+            
+            COUNT0 = 2
+            While COUNT0 < LASTROW + 2
+                KEY_LIST(COUNT_ARR) = WSH.Cells(COUNT0, KEY_COL)
+                COUNT_ARR = COUNT_ARR + 1
+                If COUNT_ARR > UBound(KEY_LIST) Then
+                    ReDim Preserve KEY_LIST(1 To COUNT_ARR)
+                End If
+                COUNT0 = COUNT0 + 1
+            Wend
+            WBK.Close
+        Else
+            Application.Wait (Now + TimeValue("0:00:02")) 'SLEEP/WAIT 2 SECONDS SINCE INPUT MAY TAKES TIME TO OPEN
+            WSH.Activate
+            Rows(1).Select
+            TRACK_ID = Selection.Find(What:="Tracking ID", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+            MONTO_AC = Selection.Find(What:=" Monto venta ", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+            LASTROW = WSH.Cells(Rows.Count, "A").End(xlUp).Row - 1
+            
+            COUNT0 = 2
+            While COUNT0 < LASTROW + 2
+                AC_KEY_LIST(COUNT_ARR2) = WSH.Cells(COUNT0, TRACK_ID) & WSH.Cells(COUNT0, MONTO_AC)
+                COUNT_ARR2 = COUNT_ARR2 + 1
+                If COUNT_ARR2 > UBound(AC_KEY_LIST) Then
+                    ReDim Preserve AC_KEY_LIST(1 To COUNT_ARR2)
+                End If
+                COUNT0 = COUNT0 + 1
+            Wend
+            WBK.Close
+        
+        
+        End If
+    End If
+Next
+Application.ScreenUpdating = True
+
+End Sub
+
+Sub AUDITORIA_LIST()
+Dim WBK As Workbook
+Dim WSH As Worksheet
+Dim TRACK_COL As Integer, MONTO_COL As Integer
+ReDim AUDI_LIST(1 To 1)
+
+COUNT_ARR = 1
+Application.ScreenUpdating = False
+    Set WBK = Workbooks.Open(AUDI_FILES, Format:=xlDelimited, Delimiter:=",")
+    Set WSH = WBK.Worksheets("Acumulado anual")
+    
+    Application.Wait (Now + TimeValue("0:00:10")) 'SLEEP/WAIT 10 SECONDS SINCE INPUT MAY TAKES TIME TO OPEN
+    WSH.Activate
+    Rows(1).Select
+    TRACK_COL = Selection.Find(What:="ID Único Transacción", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+    MONTO_COL = Selection.Find(What:="Monto a Anular", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+    LASTROW = WSH.Cells(Rows.Count, "A").End(xlUp).Row - 1
+    COUNT0 = 2
+    While COUNT0 < LASTROW + 2
+        If Mid(WSH.Cells(COUNT0, TRACK_COL), 3, Len(WSH.Cells(COUNT0, TRACK_COL))) & WSH.Cells(COUNT0, MONTO_COL) = "" Then
+            GoTo NEXT_
+        End If
+        AUDI_LIST(COUNT_ARR) = Mid(WSH.Cells(COUNT0, TRACK_COL), 3, Len(WSH.Cells(COUNT0, TRACK_COL))) & WSH.Cells(COUNT0, MONTO_COL)
+        COUNT_ARR = COUNT_ARR + 1
+        If COUNT_ARR > UBound(AUDI_LIST) Then
+            ReDim Preserve AUDI_LIST(1 To COUNT_ARR)
+        End If
+        COUNT0 = COUNT0 + 1
+    Wend
+NEXT_:
+    WBK.Close
+Application.ScreenUpdating = True
+End Sub
+
+Sub CRUCE_CC_GCP_RETOOL()
+
+RETOOL_WSH.Activate
+Rows(1).Select
+KEY_MD_COL = Selection.Find(What:="KEY_AUDITORIA", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+KEY_MV_COL = Selection.Find(What:="KEY_CC", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+LASTROW = RETOOL_WSH.Cells(Rows.Count, "A").End(xlUp).Row
+
+J = 1
+For I = 1 To LASTROW - 1
+    If RETOOL_WSH.Cells(I + 1, KEY_MD_COL) = "" Then
+    GoTo NEXT_
+    End If
+    'IF VALUE IS NOT IN GCP DF99999 LIST DELETE...
+    If IsInArray(RETOOL_WSH.Cells(I + 1, KEY_MD_COL), NOT_ID_LIST) Then
+        BASE_WSH.Cells(J + 2, 21) = "SI"
+    ElseIf IsInArray(RETOOL_WSH.Cells(I + 1, KEY_MD_COL), ID_LIST) Then
+        BASE_WSH.Cells(J + 2, 21) = "NO"
+    Else
+        BASE_WSH.Cells(J + 2, 21) = "NO ENCONTRADO"
+    End If
+    'IF VALUE IS IN CC LIST DELETE...
+    If IsInArray(RETOOL_WSH.Cells(I + 1, KEY_MV_COL), KEY_LIST) Then
+        BASE_WSH.Cells(J + 2, 24) = "SI"
+    Else
+        BASE_WSH.Cells(J + 2, 24) = "NO"
+    End If
+    'IF VALUE IS IN ACCUMULATED CC LIST DELETE...
+    If IsInArray(RETOOL_WSH.Cells(I + 1, KEY_MV_COL), AC_KEY_LIST) Then
+        BASE_WSH.Cells(J + 2, 25) = "SI"
+    Else
+        BASE_WSH.Cells(J + 2, 25) = "NO"
+    End If
+    'IF VALUE IS IN AUDITORIA LIST DELETE...
+    If IsInArray(RETOOL_WSH.Cells(I + 1, KEY_MD_COL), AUDI_LIST) Then
+        BASE_WSH.Cells(J + 2, 23) = "SI"
+    Else
+        BASE_WSH.Cells(J + 2, 23) = "NO"
+    End If
+If Not IsError(Application.Match("SI", Range(BASE_WSH.Cells(J + 2, 20), BASE_WSH.Cells(J + 2, 25)), 0)) Or Not IsError(Application.Match("NO ENCONTRADO", Range(BASE_WSH.Cells(J + 2, 20), BASE_WSH.Cells(J + 2, 25)), 0)) Then
+    RETOOL_WSH.Rows(I + 1).EntireRow.Delete
+    I = I - 1
+End If
+J = J + 1
+Next
+NEXT_:
+End Sub
+Sub FORMAT_RESULT()
+
+RETOOL_WSH.Activate
+Rows(1).Select
+KEY_MD_COL = Selection.Find(What:="KEY_AUDITORIA", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+KEY_MV_COL = Selection.Find(What:="KEY_CC", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Column
+RETOOL_WSH.Columns(KEY_MV_COL).EntireColumn.Delete
+RETOOL_WSH.Columns(KEY_MD_COL).EntireColumn.Delete
+If RETOOL_WSH.Cells(2, 1) <> "" Then
+    RESULT_PREV = RETOOL_WSH.Range(Cells(1, 1), Cells(1, KEY_MD_COL - 1).End(xlDown))
+Else
+    GoTo NEXT1_
+End If
+For I = LBound(RESULT_PREV) To UBound(RESULT_PREV)
+    If I = 1 Then
+        RESULT_PREV(I, 1) = RESULT_PREV(I, 1) & ";" & RESULT_PREV(I, 2) & ";" & RESULT_PREV(I, 3) & ";" & RESULT_PREV(I, 4) & ";" & RESULT_PREV(I, 5) & ";" & RESULT_PREV(I, 6) & ";" & RESULT_PREV(I, 7) & ";" & RESULT_PREV(I, 8) & ";" & RESULT_PREV(I, 9) & ";" & RESULT_PREV(I, 10) & ";" & RESULT_PREV(I, 11) & ";" & RESULT_PREV(I, 12)
+        GoTo NEXT_:
+    End If
+    'DATE MUST CONTAIN 8 CHARS
+    While Len(RESULT_PREV(I, 2)) < 8
+        RESULT_PREV(I, 2) = "0" & RESULT_PREV(I, 2)
+    Wend
+    
+    'AUTH CODE MUST CONTAIN 6 CHARS
+    While Len(RESULT_PREV(I, 7)) < 6
+        RESULT_PREV(I, 7) = "0" & RESULT_PREV(I, 7)
+    Wend
+    
+    'MODIFY SALES TYPE --> 5 TO 1
+    If RESULT_PREV(I, 9) = 5 Then
+        RESULT_PREV(I, 9) = 1
+    End If
+    
+    RESULT_PREV(I, 1) = RESULT_PREV(I, 1) & ";" & RESULT_PREV(I, 2) & ";" & RESULT_PREV(I, 3) & ";" & RESULT_PREV(I, 4) & ";" & RESULT_PREV(I, 5) & ";" & RESULT_PREV(I, 6) & ";" & RESULT_PREV(I, 7) & ";" & RESULT_PREV(I, 8) & ";" & RESULT_PREV(I, 9) & ";" & RESULT_PREV(I, 10) & ";" & RESULT_PREV(I, 11) & ";" & RESULT_PREV(I, 12)
+NEXT_:
+    
+Next I
+NEXT1_:
+End Sub
+Sub SAVE_OUTPUT()
+Dim FSO As Object
+
+If RETOOL_WSH.Cells(1, 1) = "" Then
+    GoTo NEXT_
+End If
+
+RETOOL_WSH.Cells.Clear
+
+For I = LBound(RESULT_PREV) To UBound(RESULT_PREV)
+    RETOOL_WSH.Cells(I, 1) = RESULT_PREV(I, 1)
+Next
+
+'REMOVE HEADER (COL NAMES)
+RETOOL_WSH.Rows(1).EntireRow.Delete
+
+NEXT_:
+'UPDATE AND SAVE FINAL RESULT IN ACUMULADOS FILE
+MATCH_ACUMULADO 'COMPARING BASE DATA VS ACUMULADO
+ACUMULADO       'ADD NEW RECORDS IN ACUMULADO
+
+'CONVERT TO CSV
+Application.DisplayAlerts = False
+RETOOL_WSH.Copy
+ActiveWorkbook.SaveAs Filename:=OUTPUT_FOLDER & OUTPUT_FILE, FileFormat:=xlCSVUTF8, CreateBackup:=False, local:=True
+ActiveWorkbook.Close
+
+BASE_WSH.Copy
+ActiveWorkbook.SaveAs Filename:=NEW_BASE_FILE, FileFormat:=52  'MACRO FORMAT
+ActiveWorkbook.Close
+
+'MOVE PREVIOUS BASE REPORT TO ARCHIVE FOLDER
+Set FSO = CreateObject("Scripting.Filesystemobject")
+FSO.CopyFile Source:=BASE_FILE, Destination:=BASE_FOLDER & "ARCHIVADO\"
+BASE_WBK.Close
+Kill BASE_FILE
+
+Application.DisplayAlerts = True
+
+End Sub
