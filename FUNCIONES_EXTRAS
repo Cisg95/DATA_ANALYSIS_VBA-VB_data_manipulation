@@ -1,0 +1,34 @@
+Public prev_day As String
+
+Function IsInArray_DT(stringToBeFound As Date, arr As Variant) As Boolean
+  IsInArray_DT = (UBound(Filter(arr, stringToBeFound)) > -1)
+End Function
+Function IsInArray(stringToBeFound As String, arr As Variant) As Boolean
+  IsInArray = UBound(Filter(arr, stringToBeFound)) > -1
+End Function
+Public Function FileExists(FilePath As String) As Boolean
+Dim TestStr As String
+    TestStr = ""
+    On Error Resume Next
+    TestStr = Dir(FilePath)
+    On Error GoTo 0
+    If TestStr = "" Then
+        FileExists = False
+    Else
+        FileExists = True
+    End If
+End Function
+Public Function FixLeadingZeros(NRO_ORDEN_ As String)
+While Left(NRO_ORDEN_, 1) = "0"
+    NRO_ORDEN_ = Mid(NRO_ORDEN_, 2)
+Wend
+    FixLeadingZeros = NRO_ORDEN_
+End Function
+Public Function Today_Is()
+weekday_num = Weekday(Date)
+If weekday_num = 2 Then 'Monday
+    prev_day = Date - 3 'Friday
+Else
+    prev_day = Date - 1
+End If
+End Function
