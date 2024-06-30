@@ -1,0 +1,84 @@
+
+Sub FILL_BASE()
+
+Set BASE_WBK = Workbooks.Open(BASE_FILE, Format:=xlDelimited, Delimiter:=",")
+Set BASE_WSH = BASE_WBK.Worksheets("Base Diaria")
+
+'CLEAN PREV DATA
+BASE_WSH.Range(BASE_WSH.Cells(3, 1), BASE_WSH.Cells(3, 1).End(xlDown)).EntireRow.Delete
+
+'UPLOAD NEW DATA
+RETOOL_WSH.Activate
+RETOOL_WSH.Range(RETOOL_WSH.Cells(2, 1), RETOOL_WSH.Cells(2, LASTCOLUMN_BASE + 1).End(xlDown)).Copy _
+        BASE_WSH.Range(BASE_WSH.Cells(3, 3), BASE_WSH.Cells(3, LASTCOLUMN_BASE + 3))
+
+End Sub
+
+
+Sub ACUMULADO()
+
+'SAVE NEW MODIFICATIONS
+LASTROW_R = RETOOL_WSH.Cells(Rows.Count, "A").End(xlUp).Row
+If RETOOL_WSH.Cells(2, 1) = "" Then
+    GoTo NEXT_
+End If
+Application.DisplayAlerts = False
+
+For I = 1 To LASTROW_R
+    
+    LASTROW_A = ACUMULADO_WSH.Cells(Rows.Count, "A").End(xlUp).Row
+    RETOOL_VALUES = Split(RETOOL_WSH.Cells(I, 1), ";")
+    If UBound(RETOOL_VALUES) = -1 Then
+        GoTo NEXT_
+    End If
+    If Not IsInArray(RETOOL_VALUES(3) & RETOOL_VALUES(11), ACUMULADO_LIST) Then
+        TRACK_ID = RETOOL_VALUES(3)
+        While Left(TRACK_ID, 1) = 0
+            TRACK_ID = Mid(TRACK_ID, 2)
+        Wend
+        ACUMULADO_WSH.Cells(LASTROW_A + 1, 2) = TRACK_ID & RETOOL_VALUES(11)
+        
+        LASTROW_A2 = ACUMULADO_WSH.Cells(Rows.Count, "B").End(xlUp).Row
+        ACUMULADO_WSH.Range(ACUMULADO_WSH.Cells(LASTROW_A + 1, 1), ACUMULADO_WSH.Cells(LASTROW_A2, 1)) = DateTime_
+    Else
+        RETOOL_WSH.Rows(I).EntireRow.Delete
+        I = I - 1
+    End If
+Next I
+NEXT_:
+
+ACUMULADO_WBK.SaveAs Filename:=ACUMULADO_FILE, FileFormat:=51, CreateBackup:=False 'XLSX FORMAT
+ACUMULADO_WBK.Close
+
+Application.DisplayAlerts = True
+End Sub
+
+Sub MATCH_ACUMULADO()
+Dim LASTROW As Integer
+
+Set ACUMULADO_WBK = Workbooks.Open(ACUMULADO_FILE, Format:=xlDelimited, Delimiter:=",")
+Set ACUMULADO_WSH = ACUMULADO_WBK.Worksheets(ACUMULADO_WBK.ActiveSheet.Name)
+
+LASTROW_A = ACUMULADO_WSH.Cells(Rows.Count, "A").End(xlUp).Row
+If LASTROW_A = 2 Then
+    ReDim ACUMULADO_LIST(1 To 1)
+    ACUMULADO_LIST(1) = ACUMULADO_WSH.Range(Cells(2, 2), Cells(LASTROW_A, 2))
+Else
+    ACUMULADO_LIST = Application.Transpose(ACUMULADO_WSH.Range(Cells(2, 2), Cells(LASTROW_A, 2)))
+End If
+
+LASTROW_B = BASE_WSH.Cells(Rows.Count, "A").End(xlUp).Row
+
+For I = 3 To LASTROW_B
+    'IF RECORD WAS FOUND OR NOT IN ACUMULADO DATA
+    If IsInArray(BASE_WSH.Cells(I, 1), ACUMULADO_LIST) Then
+        Application.DisplayAlerts = False
+        BASE_WSH.Cells(I, 22) = "SI"
+    Else
+        BASE_WSH.Cells(I, 22) = "NO"
+        Application.DisplayAlerts = True
+    End If
+
+Next I
+
+End Sub
