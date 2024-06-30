@@ -1,0 +1,106 @@
+Public Greeting, Goodbye As String
+Public TO_LIST, CONTACT_EMAIL, email, final_user As String
+
+Sub MAIN_EMAIL()
+Dim alert_title As Range
+Dim full_list As Variant
+Dim WSH As Worksheet
+
+Set WSH = ThisWorkbook.Worksheets("EMAIL_INFO")
+
+'Find Email Adresses ("To" & "Contact" email addresses)
+WSH.Activate
+Rows("2:2").Select
+CONTACT_EMAIL = Selection.Find(What:="CONTACTO:", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False).Offset(1, 0).Value
+Set TO_EMAIL = Selection.Find(What:="PARA:", LookAt:=xlWhole, SearchOrder:=xlByRows, MatchCase:=False)
+TO_LIST = Range(Cells(TO_EMAIL.Row + 1, TO_EMAIL.Column), Cells(TO_EMAIL.Row, TO_EMAIL.Column).End(xlDown)).Value
+                        
+SEND_EMAIL
+
+End Sub
+Sub SEND_EMAIL()
+Dim outlookApp As Outlook.Application
+Dim myMail As Outlook.MailItem
+
+Set outlookApp = New Outlook.Application
+Set myMail = outlookApp.CreateItem(olMailItem)
+
+'Define regards
+TIME
+Saludo = Greeting
+Despedida = Goodbye
+
+'CREATE HTML TABLE
+TOTAL_COL = GCP_WSH.Cells(1, 1).End(xlToRight).Column
+TOTAL_ROW = GCP_WSH.Cells(1, 1).End(xlDown).Row
+For I = 1 To TOTAL_COL
+    'HEADER
+    If (HEADER_RESULT) = "" Then
+        HEADER_RESULT = "<th>" & GCP_WSH.Cells(1, 1) & "</th>"
+    Else
+        HEADER_RESULT = HEADER_RESULT & "<th>" & GCP_WSH.Cells(1, I) & "</th>"
+    End If
+Next I
+
+BODY_RESULT = "<tr>"
+For I = 2 To TOTAL_ROW
+    For J = 1 To TOTAL_COL
+        ' Table data concatenated with HTML <td> tags.
+        If (BODY_RESULT) = "" Then
+            BODY_RESULT = "<td>" & GCP_WSH.Cells(1, 1) & "</td>"
+        Else
+            BODY_RESULT = BODY_RESULT & "<td>" & GCP_WSH.Cells(I, J) & "</td>"
+        End If
+    Next J
+
+    BODY_RESULT = BODY_RESULT & "</tr>"
+Next I
+
+TABLE_STYLE = "<style> table.edTable { width: 50%; font: 18px calibri; } table, table.edTable th, table.edTable td { border: solid 1px #494960; border-collapse: collapse; padding: 3px; text-align: center; } table.edTable td { background-color: #5a5f6f; color: #ffffff; font-size: 14px; } table.edTable th { background-color : #494960; color: #ffffff; } tr:hover td { background-color: #494960; color: #dddddd; } </style>"
+
+TABLE_STRING = TABLE_STYLE & "<table class='edTable'><tr>" & HEADER_RESULT & "</tr>" & _
+        "<tr>" & BODY_RESULT & "</tr></table>"
+
+'Create and send alert
+myMail.To = TO_LIST
+myMail.Subject = "RESUMEN DEVOLUCIONES TBK - " & Date
+myMail.HTMLBody = "<style> body{color:black;font-family:Arial;font-size: 12pt;}" & _
+                "<HTML><body>" & Saludo & " Equipo," & _
+                "<br><br>A continuacion se presenta el resumen del dia de hoy:" & "<br><br>" & _
+                    TABLE_STRING & _
+                "<br><br>Cualquier duda o consulta favor de comunicarse con " & CONTACT_EMAIL & "<br><br>" & _
+                Despedida & _
+                "<br>Equipo de Operaciones </a></body>"
+                
+
+myMail.Send
+End Sub
+
+Sub TIME()
+'Custom Greeting and Goodbye based on answers
+
+If TimeValue(Now()) > "9:00:00 AM" And TimeValue(Now()) < "12:00:00 PM" Then
+    Greeting = "Buenos Dias"
+    Goodbye = "Ten una buen dia!"
+
+'In case we send the message on Friday afternoon
+ElseIf WeekdayName(Weekday(Now(), vbMonday), True, vbMonday) = "vie." And TimeValue(Now()) > "15:30:00" Then
+    Greeting = "Hola"
+    Goodbye = "Disfruta el fin de semana!"
+
+'In case is noon or afternoon during weekdays
+ElseIf TimeValue(Now()) >= "12:00:00" Then
+    Greeting = "Buenas Tardes"
+    Goodbye = "Ten una buena tarde!"
+
+ElseIf Greeting = "" Then
+Greeting = "Hola"
+Goodbye = "Ten un buen dia!"
+
+End If
+
+End Sub
+
+
+
+
